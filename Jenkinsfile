@@ -1,10 +1,8 @@
 pipeline {
-    agent {
-        docker {
-            image 'hashicorp/terraform:latest'
-            // This shares the Docker socket so Terraform inside the container can talk to Docker Desktop
-            args '-v /var/run/docker.sock:/var/run/docker.sock'
-        }
+    agent any
+
+    tools {
+        terraform 'terraform'
     }
 
     environment {
