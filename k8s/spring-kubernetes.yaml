@@ -1,0 +1,121 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: spring-kubernates-config
+data:
+  SPRING_APPLICATION_NAME: "docker-demo-app-from-configmap"
+  MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "health,metrics,info"
+  INFO_APP_NAME: "Docker Demo App Version 1.0"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: spring-kubernates-deployment
+  labels:
+    app: spring-kubernates
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: spring-kubernates
+  template:
+    metadata:
+      labels:
+        app: spring-kubernates
+    spec:
+      containers:
+        - name: spring-kubernates
+          image: spring-kubernates-yaml:latest
+          imagePullPolicy: Always  # Uses your local docker image
+          ports:
+            - containerPort: 8086
+          resources:
+            requests:
+              cpu: "100m"     # 0.1 CPU core requested per pod
+              memory: "256Mi"
+            limits:
+              cpu: "500m"     # Max 0.5 CPU core allowed per pod
+              memory: "512Mi"# Matches server.port=8086
+          env:
+            - name: spring.application.name
+              valueFrom:
+                configMapKeyRef:
+                  name: spring-kubernates-config
+                  key: SPRING_APPLICATION_NAME
+            - name: management.endpoints.web.exposure.include
+              valueFrom:
+                configMapKeyRef:
+                  name: spring-kubernates-config
+                  key: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE
+            - name: info.app.name
+              valueFrom:
+                configMapKeyRef:
+                  name: spring-kubernates-config
+                  key: INFO_APP_NAME
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8086
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8086
+            initialDelaySeconds: 5
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: spring-kubernates-service
+spec:
+  type: NodePort
+  selector:
+    app: spring-kubernates
+  ports:
+    - port: 8086        # Service port inside cluster
+      targetPort: 8086  # Container port
+
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: spring-kubernates-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: spring-kubernates-deployment
+  minReplicas: 1
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 50
+
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: spring-kubernates-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: nginx   # <-- Add this line here!
+  rules:
+    - host: spring-app.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: spring-kubernates-service
+                port:
+                  number: 8086
